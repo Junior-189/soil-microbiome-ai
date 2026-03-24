@@ -1,0 +1,242 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(uuid())
+  name          String
+  email         String    @unique
+  password      String
+  farmLocation  String?
+  farmSizeHa    Float?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  farms         Farm[]
+  devices       SensorDevice[]
+}
+
+model Farm {
+  id               String    @id @default(uuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name             String
+  location         String
+  gpsLat           Float?
+  gpsLng           Float?
+  sizeHa           Float?
+  cropType         CropType  @default(TOMATO)
+  region           String?
+  createdAt        DateTime  @default(now())
+  soilReadings     SoilReading[]
+  imageAnalyses    ImageAnalysis[]
+  yieldPredictions YieldPrediction[]
+  devices          SensorDevice[]
+
+  @@index([userId])
+}
+
+model SoilReading {
+  id                          String        @id @default(uuid())
+  farmId                      String
+  farm                        Farm          @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  deviceId                    String?
+  device                      SensorDevice? @relation(fields: [deviceId], references: [id])
+  source                      ReadingSource @default(SENSOR)
+  readingAt                   DateTime      @default(now())
+  createdAt                   DateTime      @default(now())
+  soilMoisture                Float
+  soilTemperature             Float
+  soilPh                      Float
+  electricalConductivity      Float
+  bulkDensity                 Float?
+  organicMatter               Float
+  nitrogenPpm                 Float
+  phosphorusPpm               Float
+  potassiumPpm                Float
+  calciumPpm                  Float?
+  magnesiumPpm                Float?
+  sulfurPpm                   Float?
+  microbialDiversityIndex     Float?
+  nitrogenFixingBacteriaRatio Float?
+  mycorrhizalFungiPresence    Boolean       @default(false)
+  pathogenicFungiRatio        Float?
+  bacterialCountCfu           Float?
+  rainfallMm                  Float?
+  ambientTemperature          Float?
+  humidity                    Float?
+  fertilizerKgPerHa           Float?
+  previousYieldTons           Float?
+  growingSeasonDays           Int?
+  yieldPrediction             YieldPrediction?
+
+  @@index([farmId])
+  @@index([readingAt])
+}
+
+model ImageAnalysis {
+  id               String      @id @default(uuid())
+  farmId           String
+  farm             Farm        @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  imageType        ImageType
+  imagePath        String
+  originalFilename String
+  analyzedAt       DateTime    @default(now())
+  createdAt        DateTime    @default(now())
+  predictedClass   String
+  confidence       Float
+  allClassScores   Json
+  healthStatus     HealthStatus
+  yieldImpactNote  String?
+  modelVersion     String      @default("1.0.0")
+  recommendations  ImageRecommendation[]
+
+  @@index([farmId])
+  @@index([analyzedAt])
+}
+
+model YieldPrediction {
+  id                   String       @id @default(uuid())
+  farmId               String
+  farm                 Farm         @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  soilReadingId        String?      @unique
+  soilReading          SoilReading? @relation(fields: [soilReadingId], references: [id])
+  predictedYieldTons   Float
+  confidenceLow        Float
+  confidenceHigh       Float
+  yieldCategory        YieldCategory
+  regionalAverage      Float?
+  actualYieldTons      Float?
+  shapValues           Json
+  topFeatures          Json
+  recommendations      SoilRecommendation[]
+  modelVersion         String       @default("1.0.0")
+  createdAt            DateTime     @default(now())
+
+  @@index([farmId])
+  @@index([createdAt])
+}
+
+model SoilRecommendation {
+  id           String                 @id @default(uuid())
+  predictionId String
+  prediction   YieldPrediction        @relation(fields: [predictionId], references: [id], onDelete: Cascade)
+  category     RecommendationCategory
+  title        String
+  description  String
+  severity     Severity
+  actionItems  Json
+  createdAt    DateTime               @default(now())
+}
+
+model ImageRecommendation {
+  id          String        @id @default(uuid())
+  analysisId  String
+  analysis    ImageAnalysis @relation(fields: [analysisId], references: [id], onDelete: Cascade)
+  title       String
+  description String
+  severity    Severity
+  actionItems Json
+  createdAt   DateTime      @default(now())
+}
+
+model SensorDevice {
+  id              String       @id @default(uuid())
+  userId          String
+  user            User         @relation(fields: [userId], references: [id])
+  farmId          String
+  farm            Farm         @relation(fields: [farmId], references: [id])
+  deviceName      String
+  deviceSerial    String       @unique
+  deviceType      DeviceType   @default(ESP32)
+  isOnline        Boolean      @default(false)
+  batteryLevel    Float?
+  firmwareVersion String?
+  lastReadingAt   DateTime?
+  createdAt       DateTime     @default(now())
+  soilReadings    SoilReading[]
+
+  @@index([userId])
+  @@index([farmId])
+}
+
+model ModelMetrics {
+  id              String    @id @default(uuid())
+  modelType       ModelType
+  modelName       String
+  version         String
+  rmse            Float?
+  mae             Float?
+  r2Score         Float?
+  accuracy        Float?
+  precision       Float?
+  recall          Float?
+  f1Score         Float?
+  trainingSamples Int
+  classes         Json?
+  recordedAt      DateTime  @default(now())
+}
+
+enum CropType {
+  TOMATO
+  CORN
+  MIXED
+}
+
+enum ImageType {
+  SOIL
+  TOMATO
+  CORN
+}
+
+enum HealthStatus {
+  HEALTHY
+  AT_RISK
+  DISEASED
+  CRITICAL
+}
+
+enum YieldCategory {
+  POOR
+  AVERAGE
+  GOOD
+  EXCELLENT
+}
+
+enum ReadingSource {
+  SENSOR
+  MANUAL
+  SIMULATED
+}
+
+enum DeviceType {
+  ARDUINO
+  ESP32
+  RASPBERRY_PI
+  SIMULATED
+}
+
+enum ModelType {
+  TABULAR
+  CNN
+}
+
+enum Severity {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum RecommendationCategory {
+  FERTILIZER
+  MICROBIAL_AMENDMENT
+  IRRIGATION
+  CROP_ROTATION
+  PEST_DISEASE
+  SOIL_HEALTH
+}

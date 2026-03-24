@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+scikit-learn
+xgboost
+tensorflow
+pandas
+numpy
+shap
+joblib
+pillow
+python-multipart
+pydantic
+python-dotenv
+aiofiles
