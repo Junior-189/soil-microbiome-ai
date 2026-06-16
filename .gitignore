@@ -1,0 +1,26 @@
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+
+# Python
+venv/
+.venv/
+__pycache__/
+
+# ML artifacts
+*.keras
+*.joblib
+ml-engine/data/
+
+# Runtime / uploads
+server/uploads/
+
+# Backups
+backups/
+
+# Docker volumes
+postgres_data/
