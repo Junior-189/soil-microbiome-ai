@@ -37,3 +37,4 @@ tests/report/
 # Docker volumes
 postgres_data/
 
+ml-engine/soil-ml-engine/
