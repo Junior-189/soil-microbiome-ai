@@ -78,6 +78,9 @@ app.use('/api/devices', require('./routes/devices'));
 app.use('/api/analytics', require('./routes/analytics'));
 app.use('/api/admin', require('./routes/admin'));
 
+// Root — health check required by Render
+app.get('/', (req, res) => res.json({ status: 'ok', service: 'soil-api' }));
+
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
 
