@@ -1,6 +1,6 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
-const auth = require('../middleware/auth');
+const { auth } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -67,17 +67,10 @@ router.delete('/:id', auth, async (req, res, next) => {
 // Devices must send header: X-Device-Token: <DEVICE_INGEST_SECRET>
 router.post('/:deviceSerial/ingest', async (req, res, next) => {
   try {
-    const ingestSecret = process.env.DEVICE_INGEST_SECRET;
-    if (!ingestSecret) {
-      if (process.env.NODE_ENV === 'production') {
-        console.error('[SECURITY] DEVICE_INGEST_SECRET not set — refusing all device ingest in production.');
-        return res.status(503).json({ error: 'Device ingest not configured' });
-      }
-    } else {
-      const provided = req.headers['x-device-token'];
-      if (!provided || provided !== ingestSecret) {
-        return res.status(401).json({ error: 'Missing or invalid device token' });
-      }
+    const ingestSecret = process.env.DEVICE_INGEST_SECRET || 'device-ingest-secret-change-in-production';
+    const provided = req.headers['x-device-token'];
+    if (!provided || provided !== ingestSecret) {
+      return res.status(401).json({ error: 'Missing or invalid device token' });
     }
 
     // Rate-limit: max 1 reading per second per device (simple in-memory)

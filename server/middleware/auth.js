@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
+const prisma = require('../lib/prisma');
 
-const auth = (req, res, next) => {
+const auth = async (req, res, next) => {
   const header = req.headers.authorization;
 
   if (!header || !header.startsWith('Bearer ')) {
@@ -9,16 +10,30 @@ const auth = (req, res, next) => {
 
   const token = header.slice(7);
 
+  let decoded;
   try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = decoded;
-    next();
+    decoded = jwt.verify(token, process.env.JWT_SECRET);
   } catch (err) {
     if (err.name === 'TokenExpiredError') {
       return res.status(401).json({ error: 'Token expired. Please log in again.' });
     }
     return res.status(401).json({ error: 'Invalid token' });
   }
+
+  const user = await prisma.user.findUnique({ where: { id: decoded.userId } });
+  if (!user || decoded.tv !== user.tokenVersion) {
+    return res.status(401).json({ error: 'Token revoked. Please log in again.' });
+  }
+
+  req.user = { userId: decoded.userId, role: decoded.role || 'user' };
+  next();
 };
 
-module.exports = auth;
+const requireAdmin = (req, res, next) => {
+  if (!req.user || req.user.role !== 'admin') {
+    return res.status(403).json({ error: 'Admin access required' });
+  }
+  next();
+};
+
+module.exports = { auth, requireAdmin };

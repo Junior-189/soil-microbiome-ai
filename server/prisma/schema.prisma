@@ -12,6 +12,8 @@ model User {
   name          String
   email         String    @unique
   password      String
+  role          String    @default("user")
+  tokenVersion  Int       @default(0)
   farmLocation  String?
   farmSizeHa    Float?
   createdAt     DateTime  @default(now())
@@ -164,23 +166,6 @@ model SensorDevice {
   @@index([farmId])
 }
 
-model ModelMetrics {
-  id              String    @id @default(uuid())
-  modelType       ModelType
-  modelName       String
-  version         String
-  rmse            Float?
-  mae             Float?
-  r2Score         Float?
-  accuracy        Float?
-  precision       Float?
-  recall          Float?
-  f1Score         Float?
-  trainingSamples Int
-  classes         Json?
-  recordedAt      DateTime  @default(now())
-}
-
 enum CropType {
   TOMATO
   CORN
@@ -218,11 +203,6 @@ enum DeviceType {
   ESP32
   RASPBERRY_PI
   SIMULATED
-}
-
-enum ModelType {
-  TABULAR
-  CNN
 }
 
 enum Severity {

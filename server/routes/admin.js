@@ -1,9 +1,10 @@
 const express = require('express');
-const auth = require('../middleware/auth');
+const { auth, requireAdmin } = require('../middleware/auth');
 const mlService = require('../services/mlService');
 
 const router = express.Router();
 router.use(auth);
+router.use(requireAdmin);
 
 router.post('/train/tabular', async (req, res, next) => {
   try {

@@ -15,7 +15,7 @@ export function AuthProvider({ children }) {
       try {
         // Check expiry from JWT payload
         const payload = JSON.parse(atob(storedToken.split('.')[1]));
-        if (payload.exp * 1000 > Date.now()) {
+        if (payload.exp * 1000 > Date.now() + 60000) {
           setToken(storedToken);
           setUser(JSON.parse(storedUser));
         } else {

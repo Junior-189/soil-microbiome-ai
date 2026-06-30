@@ -2,19 +2,25 @@ const axios = require('axios');
 const FormData = require('form-data');
 const fs = require('fs');
 
-const ml = axios.create({
+const mlPredict = axios.create({
   baseURL: process.env.ML_ENGINE_URL || 'http://localhost:8000',
-  timeout: 120000, // 2 min for training calls
+  timeout: 30000,
+});
+
+const mlTrain = axios.create({
+  baseURL: process.env.ML_ENGINE_URL || 'http://localhost:8000',
+  timeout: 600000,
 });
 
 if (process.env.ML_ENGINE_API_KEY) {
-  ml.defaults.headers.common['X-Internal-Key'] = process.env.ML_ENGINE_API_KEY;
+  mlPredict.defaults.headers.common['X-Internal-Key'] = process.env.ML_ENGINE_API_KEY;
+  mlTrain.defaults.headers.common['X-Internal-Key'] = process.env.ML_ENGINE_API_KEY;
 }
 
 const mlService = {
   async predictYield(sensorData) {
     try {
-      const { data } = await ml.post('/tabular/predict', sensorData);
+      const { data } = await mlPredict.post('/tabular/predict', sensorData);
       return data;
     } catch (err) {
       const detail = err.response?.data?.detail || err.message;
@@ -26,10 +32,10 @@ const mlService = {
     try {
       const form = new FormData();
       form.append('file', imageBuffer, { filename, contentType: 'image/jpeg' });
-      const { data } = await ml.post(
+      const { data } = await mlPredict.post(
         `/image/predict?dataset_type=${datasetType}`,
         form,
-        { headers: form.getHeaders(), timeout: 60000 }
+        { headers: form.getHeaders() }
       );
       return data;
     } catch (err) {
@@ -40,7 +46,7 @@ const mlService = {
 
   async getTabularMetrics() {
     try {
-      const { data } = await ml.get('/tabular/metrics');
+      const { data } = await mlPredict.get('/tabular/metrics');
       return data;
     } catch (err) {
       if (err.response?.status === 404) return null;
@@ -50,7 +56,7 @@ const mlService = {
 
   async getCNNMetrics() {
     try {
-      const { data } = await ml.get('/image/metrics');
+      const { data } = await mlPredict.get('/image/metrics');
       return data;
     } catch (err) {
       if (err.response?.status === 404) return null;
@@ -60,16 +66,26 @@ const mlService = {
 
   async getModelsStatus() {
     try {
-      const { data } = await ml.get('/models/status');
+      const { data } = await mlPredict.get('/models/status');
       return data;
     } catch (err) {
       throw new Error(`Failed to get models status: ${err.message}`);
     }
   },
 
+  async getTrainingStatus() {
+    try {
+      const { data } = await mlPredict.get('/training/status');
+      return data;
+    } catch (err) {
+      if (err.response?.status === 404) return { status: 'idle' };
+      throw new Error(`Failed to get training status: ${err.message}`);
+    }
+  },
+
   async trainTabular() {
     try {
-      const { data } = await ml.post('/tabular/train');
+      const { data } = await mlTrain.post('/tabular/train');
       return data;
     } catch (err) {
       throw new Error(`Failed to start tabular training: ${err.message}`);
@@ -78,7 +94,7 @@ const mlService = {
 
   async trainCNN() {
     try {
-      const { data } = await ml.post('/image/train');
+      const { data } = await mlTrain.post('/image/train');
       return data;
     } catch (err) {
       throw new Error(`Failed to start CNN training: ${err.message}`);
@@ -87,7 +103,7 @@ const mlService = {
 
   async trainAll() {
     try {
-      const { data } = await ml.post('/train/all');
+      const { data } = await mlTrain.post('/train/all');
       return data;
     } catch (err) {
       throw new Error(`Failed to start full training: ${err.message}`);
@@ -96,7 +112,7 @@ const mlService = {
 
   async getFeatures() {
     try {
-      const { data } = await ml.get('/tabular/features');
+      const { data } = await mlPredict.get('/tabular/features');
       return data;
     } catch (err) {
       throw new Error(`Failed to get features: ${err.message}`);

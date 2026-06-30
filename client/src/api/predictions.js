@@ -1,7 +1,7 @@
 import axiosClient from './axiosClient';
 
 export const predictYield = (farmId, soilReadingId = null) =>
-  axiosClient.post('/api/predict', { farmId, soilReadingId }).then(r => r.data);
+  axiosClient.post('/api/predictions', { farmId, soilReadingId }).then(r => r.data);
 
 export const getPredictions = (farmId, page = 1, limit = 10) =>
   axiosClient.get('/api/predictions', { params: { farmId, page, limit } }).then(r => r.data);

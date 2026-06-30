@@ -41,7 +41,7 @@ services:
     environment:
       DATABASE_URL: postgresql://admin:password@postgres:5432/soil_microbiome
       ML_ENGINE_URL: http://ml-engine:8000
-      JWT_SECRET: change_this_secret_in_production_minimum_32_chars
+      JWT_SECRET: ${JWT_SECRET:-audit-fix-jwt-secret-min-32-chars-xyz}
       ML_ENGINE_API_KEY: ${ML_ENGINE_API_KEY:-ml-internal-key-change-in-production}
       CLIENT_URL: http://localhost:3000
       PORT: 5000

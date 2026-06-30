@@ -5,6 +5,7 @@ const http = require('http');
 const { Server } = require('socket.io');
 const jwt = require('jsonwebtoken');
 const path = require('path');
+const rateLimit = require('express-rate-limit');
 
 // ── Startup validation ────────────────────────────────────────────
 if (!process.env.JWT_SECRET) {
@@ -51,8 +52,18 @@ app.use(cors({
   origin: process.env.CLIENT_URL || 'http://localhost:3000',
   credentials: true,
 }));
-app.use(express.json({ limit: '20mb' }));
-app.use(express.urlencoded({ extended: true, limit: '20mb' }));
+app.use(express.json({ limit: '5mb' }));
+app.use(express.urlencoded({ extended: true, limit: '5mb' }));
+
+// Rate limiting — global API throttle
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests, please try again later.' },
+});
+app.use('/api', apiLimiter);
 
 // Static uploads
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
@@ -62,7 +73,6 @@ app.use('/api/auth', require('./routes/auth'));
 app.use('/api/farms', require('./routes/farms'));
 app.use('/api/soil-readings', require('./routes/soilReadings'));
 app.use('/api/image', require('./routes/imageAnalysis'));
-app.use('/api/predict', require('./routes/predictions'));
 app.use('/api/predictions', require('./routes/predictions'));
 app.use('/api/devices', require('./routes/devices'));
 app.use('/api/analytics', require('./routes/analytics'));

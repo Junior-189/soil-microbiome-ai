@@ -2,11 +2,16 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const prisma = require('../lib/prisma');
+const { auth } = require('../middleware/auth');
 
 const router = express.Router();
 
-function signToken(userId, role) {
-  return jwt.sign({ userId, role: role || 'user' }, process.env.JWT_SECRET, { expiresIn: '7d' });
+function signToken(userId, role, tokenVersion) {
+  return jwt.sign(
+    { userId, role: role || 'user', tv: tokenVersion || 0 },
+    process.env.JWT_SECRET,
+    { expiresIn: '7d' }
+  );
 }
 
 // POST /api/auth/register
@@ -44,10 +49,10 @@ router.post('/register', async (req, res, next) => {
           },
         },
       },
-      select: { id: true, name: true, email: true, farmLocation: true, farmSizeHa: true, createdAt: true },
+      select: { id: true, name: true, email: true, role: true, tokenVersion: true, farmLocation: true, farmSizeHa: true, createdAt: true },
     });
 
-    const token = signToken(user.id, user.role || 'user');
+    const token = signToken(user.id, user.role, user.tokenVersion);
     res.status(201).json({ token, user });
   } catch (err) {
     next(err);
@@ -68,9 +73,22 @@ router.post('/login', async (req, res, next) => {
     const match = await bcrypt.compare(password, user.password);
     if (!match) return res.status(401).json({ error: 'Invalid email or password' });
 
-    const token = signToken(user.id, user.role || 'user');
+    const token = signToken(user.id, user.role, user.tokenVersion);
     const { password: _, ...safeUser } = user;
     res.json({ token, user: safeUser });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/auth/logout
+router.post('/logout', auth, async (req, res, next) => {
+  try {
+    await prisma.user.update({
+      where: { id: req.user.userId },
+      data: { tokenVersion: { increment: 1 } },
+    });
+    res.json({ message: 'Logged out. All sessions invalidated.' });
   } catch (err) {
     next(err);
   }

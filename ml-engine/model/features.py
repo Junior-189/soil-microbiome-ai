@@ -181,12 +181,9 @@ FEATURE_METADATA = {
 CROP_TYPE_ENCODING = {"TOMATO": 0, "CORN": 1, "MIXED": 2}
 
 CNN_DATASETS = {
-    # Soil type classification — 7 classes, CyAUG augmented dataset
-    "soil":   {"path": "data/soil/CyAUG-Dataset", "img_size": 224},
-    # Disease classifier — potato images used (pattern matching handles Potato___ names)
-    "tomato": {"path": "data/potato",             "img_size": 224},
-    # Corn disease classifier — images live inside an extra data/ subfolder
-    "corn":   {"path": "data/corn/data",           "img_size": 224},
+    "soil":   {"path": "data/soil",   "img_size": 224},
+    "tomato": {"path": "data/tomato", "img_size": 224},
+    "corn":   {"path": "data/corn",   "img_size": 224},
 }
 
 def get_yield_impact_note(predicted_class: str) -> str:

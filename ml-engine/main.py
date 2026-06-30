@@ -446,18 +446,39 @@ async def train_all(background_tasks: BackgroundTasks):
     """Trigger full training pipeline (tabular + all CNNs) in background."""
     from model.tabular_trainer import train_tabular_models
     from model.cnn_trainer import train_all_cnn_models
+    from datetime import datetime
 
     def _train_all():
+        os.makedirs("model/artifacts", exist_ok=True)
+        status_path = "model/artifacts/training_status.json"
         try:
             logger.info("Starting full training pipeline...")
+            with open(status_path, "w") as f:
+                json.dump({"status": "running", "started_at": datetime.utcnow().isoformat()}, f)
+
             train_tabular_models()
+            logger.info("Tabular training complete.")
             train_all_cnn_models()
             logger.info("Full training pipeline complete.")
+
+            with open(status_path, "w") as f:
+                json.dump({"status": "complete", "completed_at": datetime.utcnow().isoformat()}, f)
         except Exception as e:
             logger.error(f"Full training pipeline failed: {e}")
+            with open(status_path, "w") as f:
+                json.dump({"status": "failed", "error": str(e), "failed_at": datetime.utcnow().isoformat()}, f)
 
     background_tasks.add_task(_train_all)
     return {"status": "Full training pipeline started", "message": "Training both models in background."}
+
+@app.get("/training/status")
+async def training_status():
+    """Return current training job status."""
+    path = "model/artifacts/training_status.json"
+    if not os.path.exists(path):
+        return {"status": "idle"}
+    with open(path) as f:
+        return json.load(f)
 
 
 # ── Models status + health ────────────────────────────────────────────────────

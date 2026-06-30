@@ -6,6 +6,7 @@ import { useFarm } from '../../contexts/FarmContext';
 import ModelComparisonTable from '../../components/ModelComparisonTable';
 import StatCard from '../../components/StatCard';
 import { BarChart2, TrendingUp, Target, Camera } from 'lucide-react';
+import toast from 'react-hot-toast';
 
 export default function Analytics() {
   const { activeFarm } = useFarm();
@@ -32,7 +33,9 @@ export default function Analytics() {
         const a = await getPredictionAccuracy(activeFarm.id).catch(() => null);
         setAccuracy(a);
       }
-    } catch {}
+    } catch {
+      toast.error('Failed to load analytics data. Check server connection.');
+    }
     setLoading(false);
   }
 

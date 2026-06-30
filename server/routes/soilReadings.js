@@ -1,6 +1,6 @@
 const express = require('express');
 const prisma = require('../lib/prisma');
-const auth = require('../middleware/auth');
+const { auth } = require('../middleware/auth');
 
 const router = express.Router();
 router.use(auth);
@@ -44,6 +44,41 @@ router.post('/', async (req, res, next) => {
 
     const farm = await verifyFarmOwnership(farmId, req.user.userId);
     if (!farm) return res.status(403).json({ error: 'Access denied' });
+
+    const validators = {
+      soilPh:                { min: 0,  max: 14,  required: true,  label: 'soilPh' },
+      soilMoisture:          { min: 0,  max: 100, required: true,  label: 'soilMoisture' },
+      soilTemperature:       { min: -10,max: 60,  required: true,  label: 'soilTemperature' },
+      electricalConductivity:{ min: 0,  max: 20,  required: true,  label: 'electricalConductivity' },
+      organicMatter:         { min: 0,  max: 100, required: true,  label: 'organicMatter' },
+      nitrogenPpm:           { min: 0,  max: 10000, required: true, label: 'nitrogenPpm' },
+      phosphorusPpm:         { min: 0,  max: 10000, required: true, label: 'phosphorusPpm' },
+      potassiumPpm:          { min: 0,  max: 10000, required: true, label: 'potassiumPpm' },
+      microbialDiversityIndex:      { min: 0, max: 20,   required: false, label: 'microbialDiversityIndex' },
+      pathogenicFungiRatio:         { min: 0, max: 100,  required: false, label: 'pathogenicFungiRatio' },
+      nitrogenFixingBacteriaRatio:  { min: 0, max: 100,  required: false, label: 'nitrogenFixingBacteriaRatio' },
+      bacterialCountCfu:            { min: 0, max: 1e6,   required: false, label: 'bacterialCountCfu' },
+      rainfallMm:            { min: 0,  max: 5000, required: false, label: 'rainfallMm' },
+      ambientTemperature:    { min: -50,max: 60,  required: false, label: 'ambientTemperature' },
+      humidity:              { min: 0,  max: 100, required: false, label: 'humidity' },
+      fertilizerKgPerHa:     { min: 0,  max: 10000, required: false, label: 'fertilizerKgPerHa' },
+      previousYieldTons:     { min: 0,  max: 1000, required: false, label: 'previousYieldTons' },
+      growingSeasonDays:     { min: 0,  max: 730,  required: false, label: 'growingSeasonDays' },
+    };
+
+    for (const [key, rule] of Object.entries(validators)) {
+      const val = fields[key];
+      if (rule.required && (val === undefined || val === null || val === '')) {
+        return res.status(400).json({ error: `${rule.label} is required` });
+      }
+      if (val !== undefined && val !== null && val !== '') {
+        const n = parseFloat(val);
+        if (isNaN(n)) return res.status(400).json({ error: `${rule.label} must be a number` });
+        if (n < rule.min || n > rule.max) {
+          return res.status(400).json({ error: `${rule.label} must be between ${rule.min} and ${rule.max}` });
+        }
+      }
+    }
 
     const reading = await prisma.soilReading.create({
       data: { farmId, source: 'MANUAL', ...fields },

@@ -17,15 +17,30 @@ function daysAgo(n) { return new Date(Date.now() - n * 24 * 60 * 60 * 1000); }
 async function main() {
   console.log('\n🌱 Seeding database...\n');
 
+  // Clean up previous demo data for idempotent re-seeding
+  const existing = await prisma.user.findUnique({ where: { email: 'demo@farm.ai' } });
+  if (existing) {
+    console.log('Cleaning previous demo data...');
+    await prisma.soilRecommendation.deleteMany({ where: { prediction: { farm: { userId: existing.id } } } });
+    await prisma.yieldPrediction.deleteMany({ where: { farm: { userId: existing.id } } });
+    await prisma.imageRecommendation.deleteMany({ where: { analysis: { farm: { userId: existing.id } } } });
+    await prisma.imageAnalysis.deleteMany({ where: { farm: { userId: existing.id } } });
+    await prisma.soilReading.deleteMany({ where: { farm: { userId: existing.id } } });
+    await prisma.sensorDevice.deleteMany({ where: { userId: existing.id } });
+    await prisma.farm.deleteMany({ where: { userId: existing.id } });
+    console.log('Cleanup complete.');
+  }
+
   // ── Demo User ──────────────────────────────────────────────────
   const password = await bcrypt.hash('demo1234', 10);
   const user = await prisma.user.upsert({
     where: { email: 'demo@farm.ai' },
-    update: {},
+    update: { role: 'admin', tokenVersion: 0 },
     create: {
       name: 'Demo Farmer',
       email: 'demo@farm.ai',
       password,
+      role: 'admin',
       farmLocation: 'Arusha, Tanzania',
       farmSizeHa: 12.5,
     },
@@ -41,40 +56,16 @@ async function main() {
 
   const farms = [];
   for (const fd of farmsData) {
-    const farm = await prisma.farm.upsert({
-      where: { id: (await prisma.farm.findFirst({ where: { name: fd.name, userId: user.id } }))?.id || 'nonexistent' },
-      update: {},
-      create: { userId: user.id, ...fd },
-    });
+    let farm = await prisma.farm.findFirst({ where: { name: fd.name, userId: user.id } });
+    if (farm) {
+      farm = await prisma.farm.update({ where: { id: farm.id }, data: fd });
+      console.log(`✓ Farm (updated): ${farm.name}`);
+    } else {
+      farm = await prisma.farm.create({ data: { userId: user.id, ...fd } });
+      console.log(`✓ Farm (created): ${farm.name}`);
+    }
     farms.push(farm);
-    console.log(`✓ Farm: ${farm.name}`);
   }
-
-  // ── Model Metrics ──────────────────────────────────────────────
-  const tabularModels = [
-    { modelName: 'random_forest',      rmse: 0.421, mae: 0.312, r2Score: 0.876 },
-    { modelName: 'gradient_boosting',  rmse: 0.398, mae: 0.287, r2Score: 0.889 },
-    { modelName: 'xgboost',            rmse: 0.385, mae: 0.271, r2Score: 0.896 },
-    { modelName: 'ensemble',           rmse: 0.361, mae: 0.254, r2Score: 0.912 },
-  ];
-  for (const m of tabularModels) {
-    await prisma.modelMetrics.create({
-      data: { modelType: 'TABULAR', version: '1.0.0', trainingSamples: 1240, ...m },
-    });
-  }
-  console.log('✓ Tabular model metrics');
-
-  const cnnModels = [
-    { modelName: 'soil_cnn',   accuracy: 0.921, precision: 0.918, recall: 0.914, f1Score: 0.916, classes: ['healthy','dry','degraded','waterlogged'], trainingSamples: 3200 },
-    { modelName: 'tomato_cnn', accuracy: 0.947, precision: 0.944, recall: 0.941, f1Score: 0.942, classes: ['healthy','Early_blight','Late_blight','Leaf_Mold'], trainingSamples: 8500 },
-    { modelName: 'corn_cnn',   accuracy: 0.933, precision: 0.930, recall: 0.928, f1Score: 0.929, classes: ['healthy','Common_rust','Northern_Leaf_Blight','Cercospora'], trainingSamples: 4100 },
-  ];
-  for (const m of cnnModels) {
-    await prisma.modelMetrics.create({
-      data: { modelType: 'CNN', version: '1.0.0', ...m },
-    });
-  }
-  console.log('✓ CNN model metrics');
 
   // ── Per-Farm Data ──────────────────────────────────────────────
   const imageSamples = {
@@ -144,45 +135,95 @@ async function main() {
     });
     console.log(`    ✓ 2 devices`);
 
-    // 30 Soil Readings over past 6 months
+    // 30 Soil Readings over past 6 months — correlated agronomic patterns
     const readingIds = [];
     const readingData = [];
+    // Base profiles per crop type (realistic regional baselines)
+    const profiles = {
+      TOMATO: {
+        soilMoisture: { base: 58, swing: 12 }, soilTemperature: { base: 24, swing: 6 },
+        soilPh: { base: 6.4, swing: 0.5 }, organicMatter: { base: 3.8, swing: 1.2 },
+        nitrogenPpm: { base: 38, swing: 15 }, phosphorusPpm: { base: 22, swing: 12 },
+        potassiumPpm: { base: 180, swing: 60 }, microbialDiversityIndex: { base: 5.2, swing: 1.4 },
+        nitrogenFixingBacteriaRatio: { base: 22, swing: 10 },
+      },
+      CORN: {
+        soilMoisture: { base: 48, swing: 14 }, soilTemperature: { base: 28, swing: 5 },
+        soilPh: { base: 6.1, swing: 0.7 }, organicMatter: { base: 2.8, swing: 1.0 },
+        nitrogenPpm: { base: 28, swing: 12 }, phosphorusPpm: { base: 18, swing: 10 },
+        potassiumPpm: { base: 140, swing: 50 }, microbialDiversityIndex: { base: 4.5, swing: 1.2 },
+        nitrogenFixingBacteriaRatio: { base: 18, swing: 8 },
+      },
+      MIXED: {
+        soilMoisture: { base: 62, swing: 10 }, soilTemperature: { base: 26, swing: 4 },
+        soilPh: { base: 6.6, swing: 0.4 }, organicMatter: { base: 4.2, swing: 1.1 },
+        nitrogenPpm: { base: 35, swing: 14 }, phosphorusPpm: { base: 25, swing: 11 },
+        potassiumPpm: { base: 200, swing: 55 }, microbialDiversityIndex: { base: 5.8, swing: 1.3 },
+        nitrogenFixingBacteriaRatio: { base: 25, swing: 9 },
+      },
+    };
+    const pf = profiles[farm.cropType] || profiles.TOMATO;
+
     for (let i = 0; i < 30; i++) {
+      const daysBack = Math.floor((30 - i) * 6);
+      const readingAt = daysAgo(daysBack);
+      // Seasonal drift: sine wave over 180 days, 0=now, 180=6 months ago
+      const season = Math.sin((daysBack / 180) * Math.PI); // -1..1
+      const wetBias = 1.0 + season * 0.3; // wetter in recent past, drier earlier
+      const tempBias = 1.0 - season * 0.15; // warmer now, cooler earlier
+
+      const baseMoisture = pf.soilMoisture.base * wetBias + rand(-pf.soilMoisture.swing, pf.soilMoisture.swing);
+      const baseTemp = pf.soilTemperature.base * tempBias + rand(-pf.soilTemperature.swing, pf.soilTemperature.swing);
+      const basePh = pf.soilPh.base + rand(-pf.soilPh.swing, pf.soilPh.swing);
+      const baseOm = pf.organicMatter.base + rand(-pf.organicMatter.swing, pf.organicMatter.swing);
+      // Nitrogen correlates with organic matter (r ~ 0.6)
+      const baseN = pf.nitrogenPpm.base + (baseOm - pf.organicMatter.base) * 8 + rand(-pf.nitrogenPpm.swing, pf.nitrogenPpm.swing);
+      const baseP = pf.phosphorusPpm.base + rand(-pf.phosphorusPpm.swing, pf.phosphorusPpm.swing);
+      const baseK = pf.potassiumPpm.base + rand(-pf.potassiumPpm.swing, pf.potassiumPpm.swing);
+      const baseMdi = pf.microbialDiversityIndex.base + (baseOm - pf.organicMatter.base) * 0.5 + rand(-pf.microbialDiversityIndex.swing, pf.microbialDiversityIndex.swing);
+      const baseNfb = pf.nitrogenFixingBacteriaRatio.base + (baseOm - pf.organicMatter.base) * 4 + rand(-pf.nitrogenFixingBacteriaRatio.swing, pf.nitrogenFixingBacteriaRatio.swing);
+      // Pathogenic fungi spikes when moisture is high and diversity is low
+      const basePfRatio = Math.max(0.3, 4.0 - baseMdi * 0.5 + (baseMoisture - 50) * 0.1 + rand(0, 5));
+      // Rainfall correlates with humidity
+      const baseRainfall = Math.max(0, 25 * wetBias + rand(-12, 12));
+      const baseHumidity = Math.min(98, 60 + baseRainfall * 0.6 + rand(-10, 10));
+      const baseAmbientTemp = baseTemp + rand(1, 4);
+
       readingData.push({
         farmId: farm.id,
         deviceId: i % 3 === 0 ? device1.id : device2.id,
         source: i % 4 === 0 ? 'MANUAL' : 'SIMULATED',
-        readingAt: daysAgo(Math.floor((30 - i) * 6)),
-        soilMoisture: rand(25, 78),
-        soilTemperature: rand(16, 35),
-        soilPh: rand(5.2, 7.8, 2),
-        electricalConductivity: rand(0.2, 2.8, 2),
-        bulkDensity: rand(1.0, 1.7, 2),
-        organicMatter: rand(1.2, 5.8),
-        nitrogenPpm: rand(8, 75),
-        phosphorusPpm: rand(6, 55),
-        potassiumPpm: rand(60, 340),
-        calciumPpm: rand(350, 2000),
-        magnesiumPpm: rand(35, 190),
-        sulfurPpm: rand(7, 50),
-        microbialDiversityIndex: rand(2.1, 7.2, 2),
-        nitrogenFixingBacteriaRatio: rand(5, 42),
-        mycorrhizalFungiPresence: Math.random() > 0.4,
-        pathogenicFungiRatio: rand(0.3, 14),
-        bacterialCountCfu: rand(4, 130),
-        rainfallMm: rand(0, 45),
-        ambientTemperature: rand(18, 38),
-        humidity: rand(38, 90),
-        fertilizerKgPerHa: rand(80, 420),
-        previousYieldTons: rand(2.0, 9.0, 2),
-        growingSeasonDays: randInt(85, 165),
+        readingAt,
+        soilMoisture: parseFloat(Math.max(5, Math.min(95, baseMoisture)).toFixed(1)),
+        soilTemperature: parseFloat(Math.max(5, Math.min(45, baseTemp)).toFixed(1)),
+        soilPh: parseFloat(Math.max(4.5, Math.min(8.5, basePh)).toFixed(2)),
+        electricalConductivity: parseFloat(Math.max(0.1, Math.min(3.5, 0.8 + (baseMoisture * 0.01) + rand(-0.3, 0.3))).toFixed(2)),
+        bulkDensity: parseFloat(Math.max(0.9, Math.min(1.8, 1.35 - baseOm * 0.06 + rand(-0.05, 0.05))).toFixed(2)),
+        organicMatter: parseFloat(Math.max(1.0, Math.min(7.0, baseOm)).toFixed(1)),
+        nitrogenPpm: parseFloat(Math.max(5, Math.min(80, baseN)).toFixed(1)),
+        phosphorusPpm: parseFloat(Math.max(5, Math.min(60, baseP)).toFixed(1)),
+        potassiumPpm: parseFloat(Math.max(50, Math.min(350, baseK)).toFixed(0)),
+        calciumPpm: parseFloat(rand(400, 1800).toFixed(0)),
+        magnesiumPpm: parseFloat(rand(30, 180).toFixed(0)),
+        sulfurPpm: parseFloat(rand(6, 45).toFixed(1)),
+        microbialDiversityIndex: parseFloat(Math.max(1.5, Math.min(7.5, baseMdi)).toFixed(2)),
+        nitrogenFixingBacteriaRatio: parseFloat(Math.max(3, Math.min(45, baseNfb)).toFixed(1)),
+        mycorrhizalFungiPresence: Math.random() > 0.35,
+        pathogenicFungiRatio: parseFloat(Math.max(0.1, Math.min(15, basePfRatio)).toFixed(1)),
+        bacterialCountCfu: parseFloat(Math.max(2, Math.min(140, baseMdi * 15 + rand(-10, 10))).toFixed(1)),
+        rainfallMm: parseFloat(baseRainfall.toFixed(1)),
+        ambientTemperature: parseFloat(Math.max(15, Math.min(40, baseAmbientTemp)).toFixed(1)),
+        humidity: parseFloat(Math.max(35, Math.min(95, baseHumidity)).toFixed(1)),
+        fertilizerKgPerHa: parseFloat(rand(90, 400).toFixed(0)),
+        previousYieldTons: parseFloat(rand(2.5, 8.5, 2)),
+        growingSeasonDays: randInt(85, 160),
       });
     }
     const readings = await prisma.$transaction(
       readingData.map((d) => prisma.soilReading.create({ data: d }))
     );
     readingIds.push(...readings.map((r) => r.id));
-    console.log(`    ✓ 30 soil readings`);
+    console.log(`    ✓ 30 soil readings (correlated agronomic patterns)`);
 
     // 10 Image Analyses
     const samples = imageSamples[farm.cropType] || imageSamples.MIXED;
