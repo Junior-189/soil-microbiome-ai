@@ -5,8 +5,8 @@ const prisma = require('../lib/prisma');
 
 const router = express.Router();
 
-function signToken(userId) {
-  return jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: '7d' });
+function signToken(userId, role) {
+  return jwt.sign({ userId, role: role || 'user' }, process.env.JWT_SECRET, { expiresIn: '7d' });
 }
 
 // POST /api/auth/register
@@ -47,7 +47,7 @@ router.post('/register', async (req, res, next) => {
       select: { id: true, name: true, email: true, farmLocation: true, farmSizeHa: true, createdAt: true },
     });
 
-    const token = signToken(user.id);
+    const token = signToken(user.id, user.role || 'user');
     res.status(201).json({ token, user });
   } catch (err) {
     next(err);
@@ -68,7 +68,7 @@ router.post('/login', async (req, res, next) => {
     const match = await bcrypt.compare(password, user.password);
     if (!match) return res.status(401).json({ error: 'Invalid email or password' });
 
-    const token = signToken(user.id);
+    const token = signToken(user.id, user.role || 'user');
     const { password: _, ...safeUser } = user;
     res.json({ token, user: safeUser });
   } catch (err) {

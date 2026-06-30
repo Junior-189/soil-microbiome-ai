@@ -4,7 +4,9 @@ const fs = require('fs');
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const farmId = req.body.farmId || 'unknown';
+    const rawFarmId = req.body.farmId || 'unknown';
+    // Sanitize farmId: allow only UUID chars to prevent path traversal
+    const farmId = rawFarmId.replace(/[^a-fA-F0-9-]/g, '').slice(0, 36) || 'unknown';
     const dir = path.join(__dirname, '..', 'uploads', 'images', farmId);
     fs.mkdirSync(dir, { recursive: true });
     cb(null, dir);

@@ -7,6 +7,10 @@ const ml = axios.create({
   timeout: 120000, // 2 min for training calls
 });
 
+if (process.env.ML_ENGINE_API_KEY) {
+  ml.defaults.headers.common['X-Internal-Key'] = process.env.ML_ENGINE_API_KEY;
+}
+
 const mlService = {
   async predictYield(sensorData) {
     try {

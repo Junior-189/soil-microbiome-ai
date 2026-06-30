@@ -5,13 +5,16 @@ FastAPI ML Engine — Two independent models:
 """
 
 import os
+import io
 import json
+import asyncio
 import logging
 from typing import Optional
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, UploadFile, File, Query, BackgroundTasks, HTTPException
+from fastapi import FastAPI, UploadFile, File, Query, BackgroundTasks, HTTPException, Depends, Security
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
@@ -45,6 +48,87 @@ class SensorDataInput(BaseModel):
     growingSeasonDays: Optional[float] = Field(default=None, ge=0, le=730)
     cropTypeEncoded: Optional[float] = Field(default=None, ge=0, le=10)
     cropType: Optional[str] = None
+
+
+# ── Internal API Key ───────────────────────────────────────────────────────────
+ML_API_KEY_HEADER = APIKeyHeader(name="X-Internal-Key", auto_error=False)
+VALID_API_KEY = os.getenv("ML_ENGINE_API_KEY")
+APP_ENV = os.getenv("APP_ENV", "development")
+
+def verify_api_key(api_key: str = Security(ML_API_KEY_HEADER)):
+    if not VALID_API_KEY:
+        if APP_ENV == "production":
+            raise HTTPException(
+                status_code=503,
+                detail="ML Engine misconfigured: API key required in production."
+            )
+        return  # dev only
+    if api_key != VALID_API_KEY:
+        raise HTTPException(
+            status_code=403,
+            detail="ML Engine: Unauthorized. Valid X-Internal-Key required."
+        )
+    return api_key
+
+# ── Module-level CNN model storage ────────────────────────────────────────────
+_cnn_models = {}
+_cnn_classes = {}
+_training_locks = {
+    "tabular": asyncio.Lock(),
+    "cnn_soil": asyncio.Lock(),
+    "cnn_tomato": asyncio.Lock(),
+    "cnn_corn": asyncio.Lock(),
+}
+
+def load_cnn_models():
+    import tensorflow as tf
+    artifact_dir = "model/artifacts/cnn"
+    for crop in ["soil", "tomato", "corn"]:
+        model_path = f"{artifact_dir}/{crop}_model.keras"
+        classes_path = f"{artifact_dir}/{crop}_classes.json"
+        if os.path.exists(model_path) and os.path.exists(classes_path):
+            try:
+                _cnn_models[crop] = tf.keras.models.load_model(model_path)
+                with open(classes_path) as f:
+                    _cnn_classes[crop] = json.load(f)
+                logger.info(f"Loaded {crop} CNN model")
+            except Exception as e:
+                logger.warning(f"Failed to load {crop} model: {e}")
+        else:
+            logger.info(f"No pre-trained {crop} model found")
+
+def get_cnn_model(crop_type: str):
+    import tensorflow as tf
+    if crop_type in _cnn_models:
+        return _cnn_models[crop_type], _cnn_classes[crop_type]
+    model_path = f"model/artifacts/cnn/{crop_type}_model.keras"
+    classes_path = f"model/artifacts/cnn/{crop_type}_classes.json"
+    if not os.path.exists(model_path) or not os.path.exists(classes_path):
+        raise HTTPException(status_code=400, detail=f"Mfano wa {crop_type} haujapatikana.")
+    model = tf.keras.models.load_model(model_path)
+    with open(classes_path) as f:
+        classes = json.load(f)
+    _cnn_models[crop_type] = model
+    _cnn_classes[crop_type] = classes
+    return model, classes
+
+
+# ── Image relevance check ──────────────────────────────────────────────────────
+
+def is_plant_image(image_bytes: bytes):
+    import numpy as np
+    from PIL import Image as PILImage
+    img = PILImage.open(io.BytesIO(image_bytes)).convert("RGB")
+    img_array = np.array(img, dtype=np.float32)
+    green_mean = img_array[:, :, 1].mean()
+    overall_mean = img_array.mean() + 1e-6
+    green_ratio = green_mean / overall_mean
+    brown_ratio = (img_array[:, :, 0].mean() * 0.5 + img_array[:, :, 1].mean() * 0.3) / 255.0
+    is_plant = green_ratio > 0.35 or brown_ratio > 0.3
+    confidence = min(1.0, float(max(green_ratio, brown_ratio)))
+    message_sw = "Picha hii haionekani kuwa ya mmea au udongo. Tafadhali pakia picha ya jani au udongo." if not is_plant else None
+    message_en = "This image does not appear to be a plant or soil. Please upload a leaf or soil photo." if not is_plant else None
+    return is_plant, confidence, message_sw, message_en
 
 
 def _check_cnn_models() -> dict:
@@ -81,6 +165,9 @@ def _has_images(dataset: str) -> bool:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("ML Engine starting up...")
+    logger.info("Loading CNN models into memory...")
+    load_cnn_models()
+    logger.info(f"Loaded {len(_cnn_models)} CNN models")
     auto_train = os.environ.get("AUTO_TRAIN_ON_STARTUP", "true").lower() == "true"
 
     if auto_train:
@@ -123,6 +210,8 @@ async def lifespan(app: FastAPI):
     logger.info("ML Engine ready.")
     yield
     logger.info("ML Engine shutting down.")
+    _cnn_models.clear()
+    _cnn_classes.clear()
 
 
 # ── App ────────────────────────────────────────────────────────────────────────
@@ -157,7 +246,7 @@ app.add_middleware(
 
 # ── Tabular endpoints ─────────────────────────────────────────────────────────
 
-@app.post("/tabular/predict")
+@app.post("/tabular/predict", dependencies=[Depends(verify_api_key)])
 async def tabular_predict(data: SensorDataInput):
     """Run yield prediction from soil sensor data (Tabular Regression Model)."""
     from model.tabular_trainer import predict_yield
@@ -171,7 +260,7 @@ async def tabular_predict(data: SensorDataInput):
         raise HTTPException(status_code=500, detail=f"Prediction failed: {str(e)}")
 
 
-@app.post("/tabular/train")
+@app.post("/tabular/train", dependencies=[Depends(verify_api_key)])
 async def tabular_train(background_tasks: BackgroundTasks):
     """Trigger tabular model training in background."""
     from model.tabular_trainer import train_tabular_models
@@ -213,28 +302,99 @@ async def tabular_features():
     }
 
 
+# ── Sensor-Only Tabular endpoints (9 real-hardware features) ───────────────────
+
+@app.post("/tabular/predict-sensor", dependencies=[Depends(verify_api_key)])
+async def tabular_predict_sensor(data: SensorDataInput):
+    from model.tabular_trainer import predict_yield_sensor
+    try:
+        result = predict_yield_sensor(data.dict())
+        result["modelUsed"] = "sensor"
+        return result
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        logger.error(f"Sensor prediction error: {e}")
+        raise HTTPException(status_code=500, detail=f"Sensor prediction failed: {str(e)}")
+
+
+@app.post("/tabular/train-sensor", dependencies=[Depends(verify_api_key)])
+async def tabular_train_sensor(background_tasks: BackgroundTasks):
+    from model.tabular_trainer import train_sensor_models
+    async def _train():
+        try:
+            train_sensor_models()
+        except Exception as e:
+            logger.error(f"Background sensor training failed: {e}")
+    background_tasks.add_task(_train)
+    return {"status": "training started",
+            "message": "Sensor-only model training started. GET /tabular/metrics-sensor to check."}
+
+
+@app.get("/tabular/metrics-sensor")
+async def tabular_metrics_sensor():
+    path = "model/artifacts/tabular/sensor/metrics.json"
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Sensor model not trained yet.")
+    with open(path) as f:
+        return json.load(f)
+
+
 # ── CNN / Image endpoints ─────────────────────────────────────────────────────
 
-@app.post("/image/predict")
+@app.post("/image/predict", dependencies=[Depends(verify_api_key)])
 async def image_predict(
     file: UploadFile = File(...),
     dataset_type: str = Query(..., pattern="^(soil|tomato|corn)$"),
 ):
-    """Classify a crop/soil image using the CNN model (Image Classification Model)."""
+    """Classify a crop/soil image using the CNN model."""
     from model.cnn_trainer import predict_image_from_bytes
     from model.recommendation_engine import generate_image_recommendations
+    from model.cnn_registry import CNN_REGISTRY
 
     contents = await file.read()
-    result = predict_image_from_bytes(contents, dataset_type)
 
-    recs = generate_image_recommendations(
-        result["predictedClass"], result["confidence"]
-    )
-    result["recommendations"] = recs
+    is_plant, plant_conf, msg_sw, msg_en = is_plant_image(contents)
+    if not is_plant:
+        return {
+            "predictedClass": "not_a_plant", "confidence": round(1.0 - plant_conf, 4),
+            "confidence_tier": "low", "healthStatus": "AT_RISK",
+            "message_sw": msg_sw, "message_en": msg_en, "valid": False,
+        }
+
+    model, class_indices = get_cnn_model(dataset_type)
+    result = predict_image_from_bytes(contents, dataset_type, model, class_indices)
+
+    confidence = result["confidence"]
+    if confidence >= 0.80: confidence_tier = "high"
+    elif confidence >= 0.60: confidence_tier = "medium"
+    else: confidence_tier = "low"
+
+    result["confidence_tier"] = confidence_tier
+    result["valid"] = confidence >= 0.60
+    result["production_validated"] = True
+
+    if confidence < 0.60:
+        result["message_sw"] = "Picha si wazi ya kutosha. Tafadhali piga picha karibu zaidi."
+        result["message_en"] = "Image not clear enough. Take a closer photo."
+
+    registry_entry = CNN_REGISTRY.get(dataset_type, {"production_ready": False})
+    if not registry_entry.get("production_ready", False):
+        crop_names = {"corn": "mahindi", "tomato": "nyanya", "soil": "udongo"}
+        crop_name = crop_names.get(dataset_type, dataset_type)
+        result["production_validated"] = False
+        result["model_status"] = registry_entry.get("kind", "UNVALIDATED")
+        result["message_sw"] = f"Mfumo bado haujafunzwa vizuri kutambua magonjwa ya {crop_name}. Tunafanya kazi kuiboresha. Kwa sasa, tafadhali wasiliana na afisa ugani kwa ushauri."
+        result["message_en"] = f"The system is not yet trained to identify {dataset_type} diseases. We are improving it. For now, please consult an extension officer."
+        result["recommendations"] = []
+        result["healthStatus"] = "AT_RISK"
+        return result
+
+    result["recommendations"] = generate_image_recommendations(result["predictedClass"], result["confidence"])
     return result
 
 
-@app.post("/image/train")
+@app.post("/image/train", dependencies=[Depends(verify_api_key)])
 async def image_train(background_tasks: BackgroundTasks):
     """Trigger CNN training for all datasets in background."""
     from model.cnn_trainer import train_all_cnn_models
@@ -281,7 +441,7 @@ async def image_classes(dataset_type: str):
 
 # ── Combined training ─────────────────────────────────────────────────────────
 
-@app.post("/train/all")
+@app.post("/train/all", dependencies=[Depends(verify_api_key)])
 async def train_all(background_tasks: BackgroundTasks):
     """Trigger full training pipeline (tabular + all CNNs) in background."""
     from model.tabular_trainer import train_tabular_models

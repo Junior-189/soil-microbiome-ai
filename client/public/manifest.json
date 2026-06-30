@@ -1,0 +1,20 @@
+{
+  "name": "SoilAI Tanzania — Uchambuzi wa Udongo",
+  "short_name": "SoilAI",
+  "description": "Mfumo wa akili bandia kwa uchambuzi wa udongo na utabiri wa mavuno",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#16a34a",
+  "orientation": "portrait",
+  "lang": "sw",
+  "icons": [
+    { "src": "/icons/icon-192x192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/icons/icon-512x512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ],
+  "shortcuts": [
+    { "name": "Ingiza Data ya Udongo", "short_name": "Udongo", "url": "/dashboard/sensor" },
+    { "name": "Pakia Picha", "short_name": "Picha", "url": "/dashboard/image-analysis" }
+  ],
+  "categories": ["agriculture", "productivity", "utilities"]
+}

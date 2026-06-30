@@ -1,7 +1,12 @@
-# Environment / secrets
+# Secrets — never commit real env files
 .env
 .env.*
+# ...but DO keep the example templates everywhere
 !.env.example
+!**/.env.example
+!server/.env.example
+!client/.env.example
+!ml-engine/.env.example
 
 # Dependencies
 node_modules/
@@ -11,16 +16,24 @@ venv/
 .venv/
 __pycache__/
 
-# ML artifacts
+# Build output
+client/dist/
+
+# ML artifacts (large files — use datasets locally)
 *.keras
 *.joblib
 ml-engine/data/
+ml-engine/model/artifacts/
 
 # Runtime / uploads
 server/uploads/
 
-# Backups
-backups/
+# Archives
+*.zip
+
+# Test reports
+tests/report/
 
 # Docker volumes
 postgres_data/
+

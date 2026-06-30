@@ -67,19 +67,29 @@ router.delete('/:id', auth, async (req, res, next) => {
 // Devices must send header: X-Device-Token: <DEVICE_INGEST_SECRET>
 router.post('/:deviceSerial/ingest', async (req, res, next) => {
   try {
-    // Enforce device secret when configured in the environment
     const ingestSecret = process.env.DEVICE_INGEST_SECRET;
-    if (ingestSecret) {
+    if (!ingestSecret) {
+      if (process.env.NODE_ENV === 'production') {
+        console.error('[SECURITY] DEVICE_INGEST_SECRET not set — refusing all device ingest in production.');
+        return res.status(503).json({ error: 'Device ingest not configured' });
+      }
+    } else {
       const provided = req.headers['x-device-token'];
       if (!provided || provided !== ingestSecret) {
         return res.status(401).json({ error: 'Missing or invalid device token' });
       }
-    } else if (process.env.NODE_ENV === 'production') {
-      // In production, always require the secret
-      console.warn('[SECURITY] DEVICE_INGEST_SECRET is not set — device ingest is unauthenticated in production!');
     }
 
+    // Rate-limit: max 1 reading per second per device (simple in-memory)
     const { deviceSerial } = req.params;
+    const now = Date.now();
+    const lastIngest = req.app.locals._ingestTimestamps || {};
+    if (lastIngest[deviceSerial] && now - lastIngest[deviceSerial] < 1000) {
+      return res.status(429).json({ error: 'Too many requests. Max 1 reading per second.' });
+    }
+    lastIngest[deviceSerial] = now;
+    req.app.locals._ingestTimestamps = lastIngest;
+
     const device = await prisma.sensorDevice.findUnique({ where: { deviceSerial } });
     if (!device) {
       return res.status(404).json({ error: `Device '${deviceSerial}' not registered` });
