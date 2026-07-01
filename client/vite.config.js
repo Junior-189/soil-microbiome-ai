@@ -1,3 +1,4 @@
+// Vite config — production build uses VITE_API_URL from Vercel env
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
