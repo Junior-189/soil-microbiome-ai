@@ -251,7 +251,7 @@ async def tabular_predict(data: SensorDataInput):
     """Run yield prediction from soil sensor data (Tabular Regression Model)."""
     from model.tabular_trainer import predict_yield
     try:
-        result = predict_yield(data.dict())
+        result = predict_yield(data.model_dump())
         return result
     except FileNotFoundError as e:
         raise HTTPException(status_code=422, detail=str(e))
@@ -362,8 +362,8 @@ async def image_predict(
             "message_sw": msg_sw, "message_en": msg_en, "valid": False,
         }
 
-    model, class_indices = get_cnn_model(dataset_type)
-    result = predict_image_from_bytes(contents, dataset_type, model, class_indices)
+    get_cnn_model(dataset_type)
+    result = predict_image_from_bytes(contents, dataset_type)
 
     confidence = result["confidence"]
     if confidence >= 0.80: confidence_tier = "high"
