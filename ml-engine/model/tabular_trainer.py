@@ -142,9 +142,9 @@ def train_tabular_models(data_path: str = "data/sensor_data.csv"):
 
     for name, model in models:
         logger.info(f"\nTraining {name}...")
-        neg_rmse = cross_val_score(model, X_scaled, y, cv=kf, scoring="neg_root_mean_squared_error")
-        r2_scores = cross_val_score(model, X_scaled, y, cv=kf, scoring="r2")
-        neg_mae = cross_val_score(model, X_scaled, y, cv=kf, scoring="neg_mean_absolute_error")
+        neg_rmse = np.asarray(cross_val_score(model, X_scaled, y, cv=kf, scoring="neg_root_mean_squared_error"))
+        r2_scores = np.asarray(cross_val_score(model, X_scaled, y, cv=kf, scoring="r2"))
+        neg_mae = np.asarray(cross_val_score(model, X_scaled, y, cv=kf, scoring="neg_mean_absolute_error"))
         model.fit(X_scaled, y)
 
         rmse = float(-neg_rmse.mean())
@@ -158,9 +158,9 @@ def train_tabular_models(data_path: str = "data/sensor_data.csv"):
         logger.info(f"  RMSE: {rmse:.4f}  MAE: {mae:.4f}  R²: {r2:.4f}")
 
     logger.info("\nTraining ensemble (VotingRegressor)...")
-    ens_neg_rmse = cross_val_score(ensemble, X_scaled, y, cv=kf, scoring="neg_root_mean_squared_error")
-    ens_r2 = cross_val_score(ensemble, X_scaled, y, cv=kf, scoring="r2")
-    ens_mae = cross_val_score(ensemble, X_scaled, y, cv=kf, scoring="neg_mean_absolute_error")
+    ens_neg_rmse = np.asarray(cross_val_score(ensemble, X_scaled, y, cv=kf, scoring="neg_root_mean_squared_error"))
+    ens_r2 = np.asarray(cross_val_score(ensemble, X_scaled, y, cv=kf, scoring="r2"))
+    ens_mae = np.asarray(cross_val_score(ensemble, X_scaled, y, cv=kf, scoring="neg_mean_absolute_error"))
     ensemble.fit(X_scaled, y)
 
     ens_rmse = float(-ens_neg_rmse.mean())
