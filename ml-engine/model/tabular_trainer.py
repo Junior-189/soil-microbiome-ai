@@ -159,18 +159,18 @@ def train_tabular_models(data_path: str = "data/sensor_data.csv"):
 
     logger.info("\nTraining ensemble (VotingRegressor)...")
     ens_neg_rmse = np.asarray(cross_val_score(ensemble, X_scaled, y, cv=kf, scoring="neg_root_mean_squared_error"))
-    ens_r2 = np.asarray(cross_val_score(ensemble, X_scaled, y, cv=kf, scoring="r2"))
-    ens_mae = np.asarray(cross_val_score(ensemble, X_scaled, y, cv=kf, scoring="neg_mean_absolute_error"))
+    ens_r2_arr = np.asarray(cross_val_score(ensemble, X_scaled, y, cv=kf, scoring="r2"))
+    ens_mae_arr = np.asarray(cross_val_score(ensemble, X_scaled, y, cv=kf, scoring="neg_mean_absolute_error"))
     ensemble.fit(X_scaled, y)
 
     ens_rmse = float(-ens_neg_rmse.mean())
-    ens_mae = float(-ens_mae.mean())
-    ens_r2 = float(ens_r2.mean())
+    ens_mae = float(-ens_mae_arr.mean())
+    ens_r2 = float(ens_r2_arr.mean())
 
     all_metrics["ensemble"] = {
         "rmse": ens_rmse, "mae": ens_mae, "r2": ens_r2,
         "rmse_std": float(ens_neg_rmse.std()),
-        "r2_std": float(ens_r2.std()),
+        "r2_std": float(ens_r2_arr.std()),
         "training_samples": int(X_scaled.shape[0]),
     }
 
